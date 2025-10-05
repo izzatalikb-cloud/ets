@@ -1,11 +1,8 @@
-// HeroSection.jsx
-import React, { useEffect, useRef, useState } from 'react';
+// HeroSection.tsx
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -18,7 +15,6 @@ export const Component = () => {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const smoothCameraPos = useRef({ x: 0, y: 30, z: 100 });
-  const cameraVelocity = useRef({ x: 0, y: 0, z: 0 });
 
   const [scrollProgress, setScrollProgress] = useState(0);
   const [currentSection, setCurrentSection] = useState(1);
@@ -29,11 +25,15 @@ export const Component = () => {
     scene: null as THREE.Scene | null,
     camera: null as THREE.PerspectiveCamera | null,
     renderer: null as THREE.WebGLRenderer | null,
-    composer: null as EffectComposer | null,
+    composer: null as any,
     stars: [] as THREE.Points[],
     nebula: null as THREE.Mesh | null,
     mountains: [] as THREE.Mesh[],
-    animationId: null as number | null
+    animationId: null as number | null,
+    targetCameraX: 0,
+    targetCameraY: 0,
+    targetCameraZ: 0,
+    locations: [] as number[]
   });
 
   // Initialize Three.js
@@ -74,20 +74,8 @@ export const Component = () => {
         }
       }
 
-      // Post-processing
-      if (refs.renderer && refs.camera && refs.scene) {
-        refs.composer = new EffectComposer(refs.renderer);
-        const renderPass = new RenderPass(refs.scene, refs.camera);
-        refs.composer.addPass(renderPass);
-
-        const bloomPass = new UnrealBloomPass(
-          new THREE.Vector2(window.innerWidth, window.innerHeight),
-          0.8,
-          0.4,
-          0.85
-        );
-        refs.composer.addPass(bloomPass);
-      }
+      // Post-processing setup (simplified for compatibility)
+      // Note: Using basic renderer for now to avoid import issues
 
       // Create scene elements
       createStarField();
@@ -353,15 +341,19 @@ export const Component = () => {
       const time = Date.now() * 0.001;
 
       // Update stars
-      refs.stars.forEach((starField, i) => {
-        if (starField.material.uniforms) {
-          starField.material.uniforms.time.value = time;
+      refs.stars.forEach((starField) => {
+        const material = starField.material as THREE.ShaderMaterial;
+        if (material && material.uniforms) {
+          material.uniforms.time.value = time;
         }
       });
 
       // Update nebula
-      if (refs.nebula && refs.nebula.material.uniforms) {
-        refs.nebula.material.uniforms.time.value = time * 0.5;
+      if (refs.nebula) {
+        const nebulaMaterial = refs.nebula.material as THREE.ShaderMaterial;
+        if (nebulaMaterial && nebulaMaterial.uniforms) {
+          nebulaMaterial.uniforms.time.value = time * 0.5;
+        }
       }
 
       // Smooth camera movement with easing
@@ -391,8 +383,8 @@ export const Component = () => {
         mountain.position.y = 50 + (Math.cos(time * 0.15) * 1 * parallaxFactor);
       });
 
-      if (refs.composer) {
-        refs.composer.render();
+      if (refs.renderer && refs.scene && refs.camera) {
+        refs.renderer.render(refs.scene, refs.camera);
       }
     };
 
@@ -401,11 +393,10 @@ export const Component = () => {
     // Handle resize
     const handleResize = () => {
       const { current: refs } = threeRefs;
-      if (refs.camera && refs.renderer && refs.composer) {
+      if (refs.camera && refs.renderer) {
         refs.camera.aspect = window.innerWidth / window.innerHeight;
         refs.camera.updateProjectionMatrix();
         refs.renderer.setSize(window.innerWidth, window.innerHeight);
-        refs.composer.setSize(window.innerWidth, window.innerHeight);
       }
     };
 
@@ -423,18 +414,27 @@ export const Component = () => {
 
       // Dispose Three.js resources
       refs.stars.forEach(starField => {
-        starField.geometry.dispose();
-        starField.material.dispose();
+        if (starField.geometry) starField.geometry.dispose();
+        if (starField.material) {
+          const material = starField.material as THREE.Material;
+          if (material.dispose) material.dispose();
+        }
       });
 
       refs.mountains.forEach(mountain => {
-        mountain.geometry.dispose();
-        mountain.material.dispose();
+        if (mountain.geometry) mountain.geometry.dispose();
+        if (mountain.material) {
+          const material = mountain.material as THREE.Material;
+          if (material.dispose) material.dispose();
+        }
       });
 
       if (refs.nebula) {
-        refs.nebula.geometry.dispose();
-        refs.nebula.material.dispose();
+        if (refs.nebula.geometry) refs.nebula.geometry.dispose();
+        if (refs.nebula.material) {
+          const material = refs.nebula.material as THREE.Material;
+          if (material.dispose) material.dispose();
+        }
       }
 
       if (refs.renderer) {
@@ -447,10 +447,10 @@ export const Component = () => {
     const { current: refs } = threeRefs;
     const locations: number[] = [];
     refs.mountains.forEach( (mountain, i) => {
-      locations[i] = mountain.position.z
-    })
-    refs.locations = locations
-  }
+      locations[i] = mountain.position.z;
+    });
+    (refs as any).locations = locations;
+  };
 
   // GSAP Animations - Run after component is ready
   useEffect(() => {
@@ -559,12 +559,11 @@ export const Component = () => {
 
         // Use the same smoothing approach
         mountain.userData.targetZ = targetZ;
-        const location = mountain.position.z
         if (progress > 0.7) {
           mountain.position.z = 600000;
         }
         if (progress < 0.7) {
-          mountain.position.z = (refs as any).locations[i]
+          mountain.position.z = (refs as any).locations[i];
         }
       });
       if (refs.nebula && refs.mountains && refs.mountains[3]) {
@@ -579,13 +578,6 @@ export const Component = () => {
   }, [totalSections]);
 
 
-  const splitTitle = (text: string) => {
-    return text.split('').map((char, i) => (
-      <span key={i} className="title-char">
-        {char}
-      </span>
-    ));
-  };
 
   return (
     <div ref={containerRef} className="hero-container cosmos-style">
@@ -633,45 +625,29 @@ export const Component = () => {
 
       {/* Additional sections for scrolling */}
       <div className="scroll-sections">
-       {[...Array(2)].map((_, i) => {
-          const titles = {
-            0: 'HORIZON',
-            1: 'COSMOS',
-            2: 'INFINITY'
-          };
+        <section className="content-section">
+          <h1 className="hero-title">COSMOS</h1>
+          <div className="hero-subtitle cosmos-subtitle">
+            <p className="subtitle-line">
+              Beyond the boundaries of imagination,
+            </p>
+            <p className="subtitle-line">
+              lies the universe of possibilities
+            </p>
+          </div>
+        </section>
 
-          const subtitles = {
-            0: {
-              line1: 'Where vision meets reality,',
-              line2: 'we shape the future of tomorrow'
-            },
-            1: {
-              line1: 'Beyond the boundaries of imagination,',
-              line2: 'lies the universe of possibilities'
-            },
-            2: {
-              line1: 'In the space between thought and creation,',
-              line2: 'we find the essence of true innovation'
-            }
-          };
-
-          return (
-            <section key={i} className="content-section">
-              <h1 ref={titleRef} className="hero-title">
-                {titles[i+1] || 'DEFAULT'}
-              </h1>
-
-              <div ref={subtitleRef} className="hero-subtitle cosmos-subtitle">
-                <p className="subtitle-line">
-                  {subtitles[i+1].line1}
-                </p>
-                <p className="subtitle-line">
-                  {subtitles[i+1].line2}
-                </p>
-              </div>
-            </section>
-          );
-        })}
+        <section className="content-section">
+          <h1 className="hero-title">INFINITY</h1>
+          <div className="hero-subtitle cosmos-subtitle">
+            <p className="subtitle-line">
+              In the space between thought and creation,
+            </p>
+            <p className="subtitle-line">
+              we find the essence of true innovation
+            </p>
+          </div>
+        </section>
       </div>
     </div>
   );
